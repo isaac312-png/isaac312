@@ -4,10 +4,10 @@ const cors = require('cors');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
 const { initDatabase, getDb } = require('./database');
-const { signup, verifyOTP, login, getUser } = require('./auth');
+const { signup, verifyOTP, login, getUser, ensureAdminAccount } = require('./auth');
 const { startInvestment, finalizeCompletedInvestments } = require('./investment');
 const { getStocks, updateStockPrices } = require('./stocks');
-const { submitWithdrawal } = require('./email'); // only withdrawal email
+const { submitWithdrawal } = require('./email');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,7 +35,6 @@ function authenticate(req, res, next) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.userId = decoded.id;
         req.userRole = decoded.role;
-        // Update last_seen for any authenticated request
         const db = getDb();
         db.run(`UPDATE users SET last_seen = ? WHERE id = ?`, [Date.now(), req.userId]);
         next();
@@ -86,8 +85,21 @@ app.put('/api/admin/users/:id/balance', authenticate, isAdmin, (req, res) => {
 cron.schedule('* * * * *', () => finalizeCompletedInvestments());
 cron.schedule('*/10 * * * * *', () => updateStockPrices());
 
+// Start server
 async function startServer() {
-    await initDatabase();
-    app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+    try {
+        await initDatabase();
+        console.log('✅ Database initialized');
+        await ensureAdminAccount();
+        console.log('✅ Admin account checked/created');
+        app.listen(PORT, () => {
+            console.log(`🚀 Server running on port ${PORT}`);
+            console.log(`✅ Health check: http://localhost:${PORT}/health`);
+        });
+    } catch (err) {
+        console.error('❌ Failed to start server:', err);
+        process.exit(1);
+    }
 }
+
 startServer();
