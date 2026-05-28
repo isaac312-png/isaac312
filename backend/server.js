@@ -24,7 +24,7 @@ app.post('/api/signup', signup);
 app.post('/api/verify', verifyOTP);
 app.post('/api/login', login);
 
-// Middleware
+// Authentication middleware
 function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
