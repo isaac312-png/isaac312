@@ -1,54 +1,57 @@
-const nodemailer = require('nodemailer');
 const { getDb } = require('./database');
 
-let transporter = null;
-
-function getTransporter() {
-    if (!transporter) {
-        transporter = nodemailer.createTransport({
-            host: 'smtp-relay.brevo.com',
-            port: 587,
-            secure: false,
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASS
-            }
-        });
-    }
-    return transporter;
-}
-
 async function sendOTPEmail(toEmail, otp) {
-    const transporter = getTransporter();
+    const apiKey = process.env.BREVO_API_KEY;
     const fromEmail = process.env.EMAIL_FROM || 'admin@gmail.com';
     
+    if (!apiKey) {
+        console.error('❌ BREVO_API_KEY not set in environment variables');
+        return false;
+    }
+    
     try {
-        const info = await transporter.sendMail({
-            from: `"Coinbase Investment" <${fromEmail}>`,
-            to: toEmail,
-            subject: 'Your OTP Verification Code',
-            text: `Your OTP code is ${otp}. Valid for 10 minutes.`,
-            html: `
-                <div style="font-family: Arial, sans-serif; padding: 20px; background: linear-gradient(135deg, #d9c8ff, #f3e8ff);">
-                    <div style="max-width: 400px; margin: 0 auto; background: white; border-radius: 32px; padding: 30px; text-align: center;">
-                        <h1 style="color: #9333ea; font-family: 'Playfair Display', Georgia, serif;">Coinbase</h1>
-                        <h2 style="color: #5b21b6;">Your OTP Code</h2>
-                        <p style="font-size: 14px; color: #666;">Use the code below to verify your email address.</p>
-                        <div style="background: #f3e8ff; padding: 15px; border-radius: 16px; margin: 20px 0;">
-                            <span style="font-size: 32px; letter-spacing: 8px; font-weight: bold; color: #5b21b6;">${otp}</span>
+        const fetch = require('node-fetch');
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'api-key': apiKey
+            },
+            body: JSON.stringify({
+                sender: { email: fromEmail, name: 'Coinbase Investment' },
+                to: [{ email: toEmail }],
+                subject: '🔐 Your OTP Verification Code',
+                htmlContent: `
+                    <div style="font-family: Arial, sans-serif; padding: 20px; background: linear-gradient(135deg, #d9c8ff, #f3e8ff);">
+                        <div style="max-width: 450px; margin: 0 auto; background: white; border-radius: 32px; padding: 35px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.1);">
+                            <h1 style="color: #9333ea; font-family: 'Playfair Display', Georgia, serif; font-size: 28px; margin-bottom: 10px;">Coinbase</h1>
+                            <h2 style="color: #5b21b6; font-size: 20px; margin-bottom: 20px;">Email Verification</h2>
+                            <p style="font-size: 14px; color: #4a5568; margin-bottom: 25px;">Use the code below to complete your registration:</p>
+                            <div style="background: #f3e8ff; padding: 20px; border-radius: 16px; margin: 20px 0; border: 2px dashed #c084fc;">
+                                <span style="font-size: 40px; letter-spacing: 10px; font-weight: bold; color: #5b21b6;">${otp}</span>
+                            </div>
+                            <p style="font-size: 12px; color: #718096;">This code is valid for <strong>10 minutes</strong>.</p>
+                            <hr style="margin: 25px 0; border: none; border-top: 1px solid #e9d5ff;">
+                            <p style="font-size: 11px; color: #a0aec0;">If you didn't request this, please ignore this email.</p>
+                            <p style="font-size: 11px; color: #c084fc; margin-top: 10px;">Coinbase Investment Platform</p>
                         </div>
-                        <p style="font-size: 12px; color: #999;">This code expires in 10 minutes.</p>
-                        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e9d5ff;">
-                        <p style="font-size: 11px; color: #aaa;">Coinbase Investment Platform</p>
                     </div>
-                </div>
-            `
+                `
+            })
         });
-        console.log(`✅ OTP email sent to ${toEmail}: ${info.messageId}`);
-        return true;
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log(`✅ OTP email sent to ${toEmail} - Message ID: ${result.messageId}`);
+            return true;
+        } else {
+            const error = await response.text();
+            console.error(`❌ Brevo API error (${response.status}): ${error}`);
+            return false;
+        }
     } catch (err) {
         console.error(`❌ Failed to send email to ${toEmail}:`, err.message);
-        console.log(`📝 Fallback - OTP for ${toEmail}: ${otp}`);
         return false;
     }
 }
