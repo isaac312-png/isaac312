@@ -25,7 +25,7 @@ app.post('/api/verify', verifyOTP);
 app.post('/api/login', login);
 
 // Authentication middleware
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'Unauthorized' });
@@ -35,8 +35,8 @@ function authenticate(req, res, next) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.userId = decoded.id;
         req.userRole = decoded.role;
-        const db = getDb();
-        db.run(`UPDATE users SET last_seen = ? WHERE id = ?`, [Date.now(), req.userId]);
+        const supabase = getDb();
+        await supabase.from('users').update({ last_seen: Date.now() }).eq('id', req.userId);
         next();
     } catch (err) {
         return res.status(401).json({ error: 'Invalid token' });
@@ -53,32 +53,48 @@ app.get('/api/user', authenticate, getUser);
 app.get('/api/stocks', authenticate, (req, res) => getStocks(res));
 app.post('/api/invest-custom', authenticate, async (req, res) => {
     const { planId, amount } = req.body;
-    if (!planId || !amount || amount < 10) return res.status(400).json({ error: 'Invalid amount' });
+    if (!planId || !amount || amount < 10) {
+        return res.status(400).json({ error: 'Invalid amount (min 10)' });
+    }
     await startInvestment(req.userId, planId, amount, res);
 });
 app.post('/api/withdraw', authenticate, (req, res) => {
     const { amount, method, details } = req.body;
-    if (!amount || !method || !details) return res.status(400).json({ error: 'Missing fields' });
+    if (!amount || !method || !details) {
+        return res.status(400).json({ error: 'Missing fields' });
+    }
     submitWithdrawal(req.userId, method, details, amount, res);
 });
 
 // Admin endpoints
-app.get('/api/admin/users', authenticate, isAdmin, (req, res) => {
-    const db = getDb();
-    db.all(`SELECT id, first_name, last_name, email, deposit_balance, invested_amount, profit_accumulated, total_balance, last_seen FROM users WHERE role = 'user'`, (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
+app.get('/api/admin/users', authenticate, isAdmin, async (req, res) => {
+    const supabase = getDb();
+    const { data, error } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, email, deposit_balance, invested_amount, profit_accumulated, total_balance, last_seen')
+        .eq('role', 'user');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
 });
-app.put('/api/admin/users/:id/balance', authenticate, isAdmin, (req, res) => {
+
+app.put('/api/admin/users/:id/balance', authenticate, isAdmin, async (req, res) => {
     const { amount } = req.body;
     const userId = req.params.id;
     if (typeof amount !== 'number') return res.status(400).json({ error: 'Amount must be number' });
-    const db = getDb();
-    db.run(`UPDATE users SET deposit_balance = deposit_balance + ? WHERE id = ?`, [amount, userId], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Balance updated' });
-    });
+    const supabase = getDb();
+    const { data: user, error: fetchError } = await supabase
+        .from('users')
+        .select('deposit_balance')
+        .eq('id', userId)
+        .single();
+    if (fetchError) return res.status(500).json({ error: 'User not found' });
+    const newBalance = (user.deposit_balance || 0) + amount;
+    const { error: updateError } = await supabase
+        .from('users')
+        .update({ deposit_balance: newBalance })
+        .eq('id', userId);
+    if (updateError) return res.status(500).json({ error: updateError.message });
+    res.json({ message: 'Balance updated' });
 });
 
 // Cron jobs
@@ -87,19 +103,14 @@ cron.schedule('*/10 * * * * *', () => updateStockPrices());
 
 // Start server
 async function startServer() {
-    try {
-        await initDatabase();
-        console.log('✅ Database initialized');
-        await ensureAdminAccount();
-        console.log('✅ Admin account checked/created');
-        app.listen(PORT, () => {
-            console.log(`🚀 Server running on port ${PORT}`);
-            console.log(`✅ Health check: http://localhost:${PORT}/health`);
-        });
-    } catch (err) {
-        console.error('❌ Failed to start server:', err);
-        process.exit(1);
-    }
+    await initDatabase();
+    console.log('✅ Connected to Supabase');
+    await ensureAdminAccount();
+    console.log('✅ Admin account checked/created');
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`✅ Health check: http://localhost:${PORT}/health`);
+    });
 }
 
 startServer();
