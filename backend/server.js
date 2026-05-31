@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const cron = require('node-cron');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const { initDatabase, getDb } = require('./database');
 const { signup, verifyOTP, login, getUser, ensureAdminAccount } = require('./auth');
 const { startInvestment, finalizeCompletedInvestments } = require('./investment');
@@ -23,6 +24,57 @@ app.get('/api/test', (req, res) => res.json({ message: 'Backend works' }));
 app.post('/api/signup', signup);
 app.post('/api/verify', verifyOTP);
 app.post('/api/login', login);
+
+// ========== TEMPORARY ADMIN DEBUG ENDPOINTS (remove later) ==========
+// Force create admin using upsert
+app.get('/api/create-admin', async (req, res) => {
+    const supabase = getDb();
+    const hashed = bcrypt.hashSync('2026ifatall', 10);
+    const { error } = await supabase
+        .from('users')
+        .upsert([{ 
+            first_name: 'Admin', 
+            last_name: 'User', 
+            email: 'admin@gmail.com', 
+            password: hashed, 
+            verified: 1, 
+            role: 'admin' 
+        }], { onConflict: 'email' });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: 'Admin created/updated successfully' });
+});
+
+// Reset admin password with fresh hash
+app.get('/api/reset-admin', async (req, res) => {
+    const supabase = getDb();
+    const newHash = bcrypt.hashSync('2026ifatall', 10);
+    const { error } = await supabase
+        .from('users')
+        .update({ password: newHash })
+        .eq('email', 'admin@gmail.com');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ message: 'Admin password reset' });
+});
+
+// Debug login endpoint (POST)
+app.post('/api/debug-login', async (req, res) => {
+    const supabase = getDb();
+    const { email, password } = req.body;
+    const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
+    if (error) return res.json({ error: error.message, user: null });
+    const match = bcrypt.compareSync(password, user.password);
+    res.json({ 
+        exists: !!user, 
+        passwordMatch: match,
+        userRole: user?.role,
+        verified: user?.verified
+    });
+});
+// ========== END DEBUG ENDPOINTS ==========
 
 // Authentication middleware
 async function authenticate(req, res, next) {
