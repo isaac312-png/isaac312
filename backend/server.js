@@ -8,7 +8,7 @@ const { initDatabase, getDb } = require('./database');
 const { signup, verifyOTP, login, getUser, ensureAdminAccount } = require('./auth');
 const { startInvestment, finalizeCompletedInvestments } = require('./investment');
 const { getStocks, updateStockPrices } = require('./stocks');
-const { submitWithdrawal } = require('./email');
+const { submitWithdrawal, sendWithdrawalEmail } = require('./email');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,7 +26,6 @@ app.post('/api/verify', verifyOTP);
 app.post('/api/login', login);
 
 // ========== TEMPORARY ADMIN DEBUG ENDPOINTS (remove later) ==========
-// Force create admin using upsert
 app.get('/api/create-admin', async (req, res) => {
     const supabase = getDb();
     const hashed = bcrypt.hashSync('2026ifatall', 10);
@@ -44,7 +43,6 @@ app.get('/api/create-admin', async (req, res) => {
     res.json({ message: 'Admin created/updated successfully' });
 });
 
-// Reset admin password with fresh hash
 app.get('/api/reset-admin', async (req, res) => {
     const supabase = getDb();
     const newHash = bcrypt.hashSync('2026ifatall', 10);
@@ -56,7 +54,6 @@ app.get('/api/reset-admin', async (req, res) => {
     res.json({ message: 'Admin password reset' });
 });
 
-// Debug login endpoint (POST)
 app.post('/api/debug-login', async (req, res) => {
     const supabase = getDb();
     const { email, password } = req.body;
@@ -110,13 +107,84 @@ app.post('/api/invest-custom', authenticate, async (req, res) => {
     }
     await startInvestment(req.userId, planId, amount, res);
 });
-app.post('/api/withdraw', authenticate, (req, res) => {
+
+// ========== NEW CORRECTED WITHDRAWAL ENDPOINT ==========
+app.post('/api/withdraw', authenticate, async (req, res) => {
     const { amount, method, details } = req.body;
     if (!amount || !method || !details) {
         return res.status(400).json({ error: 'Missing fields' });
     }
-    submitWithdrawal(req.userId, method, details, amount, res);
+    if (amount <= 0) {
+        return res.status(400).json({ error: 'Amount must be positive' });
+    }
+
+    const supabase = getDb();
+
+    // 1. Get current balances and email
+    const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('deposit_balance, profit_accumulated, email')
+        .eq('id', req.userId)
+        .single();
+    if (userError || !user) {
+        return res.status(500).json({ error: 'User not found' });
+    }
+
+    let deposit = user.deposit_balance || 0;
+    let profit = user.profit_accumulated || 0;
+    let total = deposit + profit;
+    if (amount > total) {
+        return res.status(400).json({ error: 'Insufficient balance' });
+    }
+
+    // 2. Deduct balance (deposit first, then profit)
+    let newDeposit = deposit;
+    let newProfit = profit;
+    if (amount <= deposit) {
+        newDeposit = deposit - amount;
+    } else {
+        let remainder = amount - deposit;
+        newDeposit = 0;
+        newProfit = profit - remainder;
+    }
+
+    // 3. Insert withdrawal record
+    const { data: withdrawal, error: insertError } = await supabase
+        .from('withdrawals')
+        .insert([{
+            user_id: req.userId,
+            amount: amount,
+            method: method,
+            details: JSON.stringify(details),
+            status: 'pending',
+            created_at: Date.now()
+        }])
+        .select();
+
+    if (insertError) {
+        console.error('Withdrawal insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to record withdrawal' });
+    }
+
+    // 4. Update user balances
+    const { error: updateError } = await supabase
+        .from('users')
+        .update({ deposit_balance: newDeposit, profit_accumulated: newProfit })
+        .eq('id', req.userId);
+    if (updateError) {
+        console.error('Balance update error:', updateError);
+        // Rollback: delete the withdrawal we just inserted
+        await supabase.from('withdrawals').delete().eq('id', withdrawal[0].id);
+        return res.status(500).json({ error: 'Failed to update balance' });
+    }
+
+    // 5. Send email notification (fire and forget – don't await)
+    sendWithdrawalEmail(user.email, amount, method, details, withdrawal[0].id).catch(err => console.error('Email send error:', err));
+
+    // 6. Return success (matches frontend expectation)
+    res.json({ success: true, id: withdrawal[0].id, message: 'Withdrawal request saved' });
 });
+// ========== END WITHDRAWAL ==========
 
 // Admin endpoints
 app.get('/api/admin/users', authenticate, isAdmin, async (req, res) => {
