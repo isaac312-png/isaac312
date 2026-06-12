@@ -108,7 +108,7 @@ app.post('/api/invest-custom', authenticate, async (req, res) => {
     await startInvestment(req.userId, planId, amount, res);
 });
 
-// ========== CORRECTED WITHDRAWAL ENDPOINT (with balance deduction & email) ==========
+// ========== WITHDRAWAL ENDPOINT (corrected, with email) ==========
 app.post('/api/withdraw', authenticate, async (req, res) => {
     const { amount, method, details } = req.body;
     if (!amount || !method || !details) {
@@ -181,11 +181,11 @@ app.post('/api/withdraw', authenticate, async (req, res) => {
     // 5. Send email notification (fire and forget)
     sendWithdrawalEmail(user.email, amount, method, details, withdrawal[0].id).catch(err => console.error('Email send error:', err));
 
-    // 6. Return success (matches frontend expectation)
+    // 6. Return success
     res.json({ success: true, id: withdrawal[0].id, message: 'Withdrawal request saved' });
 });
 
-// ========== NEW: GET USER'S WITHDRAWAL HISTORY (for dashboard) ==========
+// ========== GET USER'S WITHDRAWAL HISTORY ==========
 app.get('/api/withdrawals', authenticate, async (req, res) => {
     const supabase = getDb();
     const { data, error } = await supabase
@@ -201,7 +201,7 @@ app.get('/api/withdrawals', authenticate, async (req, res) => {
     res.json(data || []);
 });
 
-// Admin endpoints
+// ========== ADMIN ENDPOINTS ==========
 app.get('/api/admin/users', authenticate, isAdmin, async (req, res) => {
     const supabase = getDb();
     const { data, error } = await supabase
@@ -230,6 +230,21 @@ app.put('/api/admin/users/:id/balance', authenticate, isAdmin, async (req, res) 
         .eq('id', userId);
     if (updateError) return res.status(500).json({ error: updateError.message });
     res.json({ message: 'Balance updated' });
+});
+
+// ========== NEW: ADMIN OTP LOGS ENDPOINT ==========
+app.get('/api/admin/otp-logs', authenticate, isAdmin, async (req, res) => {
+    const supabase = getDb();
+    const { data, error } = await supabase
+        .from('otp_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+    if (error) {
+        console.error('Fetch OTP logs error:', error);
+        return res.status(500).json({ error: error.message });
+    }
+    res.json(data || []);
 });
 
 // Cron jobs
