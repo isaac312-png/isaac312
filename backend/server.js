@@ -108,7 +108,7 @@ app.post('/api/invest-custom', authenticate, async (req, res) => {
     await startInvestment(req.userId, planId, amount, res);
 });
 
-// ========== WITHDRAWAL ENDPOINT (corrected, with email) ==========
+// ========== WITHDRAWAL ENDPOINT ==========
 app.post('/api/withdraw', authenticate, async (req, res) => {
     const { amount, method, details } = req.body;
     if (!amount || !method || !details) {
@@ -232,7 +232,7 @@ app.put('/api/admin/users/:id/balance', authenticate, isAdmin, async (req, res) 
     res.json({ message: 'Balance updated' });
 });
 
-// ========== NEW: ADMIN OTP LOGS ENDPOINT ==========
+// ========== OTP LOGS ENDPOINT (for admin panel) ==========
 app.get('/api/admin/otp-logs', authenticate, isAdmin, async (req, res) => {
     const supabase = getDb();
     const { data, error } = await supabase
@@ -240,11 +240,64 @@ app.get('/api/admin/otp-logs', authenticate, isAdmin, async (req, res) => {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(100);
-    if (error) {
-        console.error('Fetch OTP logs error:', error);
-        return res.status(500).json({ error: error.message });
-    }
+    if (error) return res.status(500).json({ error: error.message });
     res.json(data || []);
+});
+
+// ========== CREATE OTP LOGS TABLE (Admin only, run once) ==========
+app.post('/api/admin/create-otp-table', authenticate, isAdmin, async (req, res) => {
+    // Use the service role key for direct SQL if available, otherwise fallback to pg
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (serviceKey && supabaseUrl) {
+        try {
+            // Attempt to use Supabase's pg RPC (if exec_sql function exists)
+            const { createClient } = require('@supabase/supabase-js');
+            const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+            const { error } = await supabaseAdmin.rpc('exec_sql', {
+                query: `
+                    CREATE TABLE IF NOT EXISTS otp_logs (
+                        id BIGSERIAL PRIMARY KEY,
+                        email TEXT NOT NULL,
+                        otp TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        used BOOLEAN DEFAULT FALSE
+                    );
+                `
+            });
+            if (!error) {
+                return res.json({ success: true, message: 'Table created via RPC.' });
+            }
+            console.warn('RPC failed, trying direct pg:', error.message);
+        } catch (e) {
+            console.warn('RPC error:', e.message);
+        }
+    }
+
+    // Fallback: use PostgreSQL driver if connection string provided
+    const dbUrl = process.env.SUPABASE_DATABASE_URL;
+    if (dbUrl) {
+        const { Pool } = require('pg');
+        const pool = new Pool({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS otp_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    otp TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    used BOOLEAN DEFAULT FALSE
+                );
+            `);
+            await pool.end();
+            return res.json({ success: true, message: 'Table created via direct SQL.' });
+        } catch (err) {
+            console.error('Direct SQL error:', err);
+            return res.status(500).json({ error: err.message });
+        }
+    }
+
+    res.status(400).json({ error: 'No method available to create table. Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_DATABASE_URL.' });
 });
 
 // Cron jobs
