@@ -55,7 +55,6 @@ async function signup(req, res) {
 
     const hashedPassword = bcrypt.hashSync(password, 10);
     const otp = generateOTP();
-    const otpExpiry = Date.now() + 10 * 60 * 1000;
     const supabase = getDb();
 
     // Check existing user
@@ -74,24 +73,25 @@ async function signup(req, res) {
         if (existingUser.verified === 1) {
             return res.status(400).json({ error: 'Email already registered and verified' });
         } else {
-            // Update unverified user
+            // Update unverified user (do NOT store OTP in users table)
             const { error: updateError } = await supabase
                 .from('users')
-                .update({ first_name, last_name, password: hashedPassword, otp, otp_expiry: otpExpiry })
+                .update({ first_name, last_name, password: hashedPassword })
                 .eq('email', email);
             if (updateError) {
                 console.error('Update error:', updateError);
                 return res.status(500).json({ error: 'Failed to update user' });
             }
+            // Send OTP (stored in otp_logs via email.js)
             await sendOTPEmail(email, otp);
             return res.json({ message: 'OTP sent to your email' });
         }
     }
 
-    // Create new user
+    // Create new user (no OTP stored in users table)
     const { error: insertError } = await supabase
         .from('users')
-        .insert([{ first_name, last_name, email, password: hashedPassword, otp, otp_expiry: otpExpiry, verified: 0 }]);
+        .insert([{ first_name, last_name, email, password: hashedPassword, verified: 0 }]);
     if (insertError) {
         console.error('Insert error:', insertError);
         return res.status(500).json({ error: 'Failed to create user' });
@@ -105,40 +105,50 @@ async function verifyOTP(req, res) {
     if (!email || !otp) return res.status(400).json({ error: 'Email and OTP required' });
     const supabase = getDb();
 
-    const { data: user, error } = await supabase
-        .from('users')
+    // 1. Find the most recent, unused OTP for this email from otp_logs
+    const { data: otpRecord, error: otpError } = await supabase
+        .from('otp_logs')
         .select('*')
         .eq('email', email)
-        .maybeSingle();
-    if (error || !user) return res.status(404).json({ error: 'User not found' });
+        .eq('otp', otp)
+        .eq('used', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-    if (user.verified === 1) {
-        const token = jwt.sign(
-            { id: user.id, email, firstName: user.first_name, lastName: user.last_name, role: user.role || 'user' },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-        return res.json({ message: 'Already verified', token });
+    if (otpError || !otpRecord) {
+        return res.status(400).json({ error: 'Invalid or expired OTP' });
     }
 
-    if (user.otp === otp && user.otp_expiry > Date.now()) {
-        const { error: updateError } = await supabase
-            .from('users')
-            .update({ verified: 1, otp: null, otp_expiry: null })
-            .eq('id', user.id);
-        if (updateError) {
-            console.error('Verify update error:', updateError);
-            return res.status(500).json({ error: 'Database error' });
-        }
-        const token = jwt.sign(
-            { id: user.id, email, firstName: user.first_name, lastName: user.last_name, role: user.role || 'user' },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-        res.json({ message: 'Verified successfully', token });
-    } else {
-        res.status(400).json({ error: 'Invalid or expired OTP' });
+    // 2. Check expiry (10 minutes from creation)
+    const now = Date.now();
+    const expiry = new Date(otpRecord.created_at).getTime() + 10 * 60 * 1000;
+    if (now > expiry) {
+        return res.status(400).json({ error: 'OTP expired' });
     }
+
+    // 3. Mark OTP as used
+    await supabase.from('otp_logs').update({ used: true }).eq('id', otpRecord.id);
+
+    // 4. Update user as verified
+    const { data: user, error: userError } = await supabase
+        .from('users')
+        .update({ verified: 1 })
+        .eq('email', email)
+        .select()
+        .single();
+
+    if (userError || !user) {
+        return res.status(500).json({ error: 'User not found' });
+    }
+
+    // 5. Generate JWT token
+    const token = jwt.sign(
+        { id: user.id, email, firstName: user.first_name, lastName: user.last_name, role: user.role || 'user' },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+    );
+    res.json({ message: 'Verified successfully', token });
 }
 
 async function login(req, res) {
