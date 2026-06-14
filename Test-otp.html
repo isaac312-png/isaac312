@@ -1,40 +1,312 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Test OTP Verification</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Sign Up | Trade Global Market</title>
     <style>
-        body { background: #0a0c10; color: white; font-family: monospace; padding: 20px; }
-        input, button { padding: 12px; margin: 8px 0; width: 100%; border-radius: 8px; border: none; }
-        button { background: #26914a; color: white; cursor: pointer; }
-        pre { background: #14181f; padding: 12px; border-radius: 8px; overflow-x: auto; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1a232a 0%, #0f1519 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .signup-container {
+            background: white;
+            border-radius: 24px;
+            padding: 40px 32px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        }
+        .logo { text-align: center; margin-bottom: 24px; }
+        .logo img { max-width: 140px; height: auto; }
+        h1 { font-size: 28px; font-weight: 600; color: #1a232a; margin-bottom: 8px; text-align: center; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 32px; font-size: 14px; }
+        .input-group { margin-bottom: 16px; }
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+        input:focus { outline: none; border-color: #26914a; box-shadow: 0 0 0 3px rgba(38,145,74,0.1); }
+        .signup-btn {
+            width: 100%;
+            padding: 14px;
+            background-color: #26914a;
+            color: white;
+            border: none;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 8px;
+        }
+        .signup-btn:hover { background-color: #1e6e38; }
+        .signup-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #26914a;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .error-message { color: #e53e3e; font-size: 14px; margin-top: 8px; margin-bottom: 8px; }
+        .success-message { color: #26914a; font-size: 14px; margin-top: 8px; margin-bottom: 8px; }
+        .footer { text-align: center; margin-top: 24px; font-size: 14px; color: #666; }
+        .footer a { color: #26914a; text-decoration: none; font-weight: 500; }
+        .footer a:hover { text-decoration: underline; }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal-container {
+            background: white;
+            border-radius: 24px;
+            width: 90%;
+            max-width: 420px;
+            padding: 32px;
+            position: relative;
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .modal-container { transform: scale(1); }
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 20px;
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        .modal-title { font-size: 24px; font-weight: 600; margin-bottom: 16px; }
+        .modal-btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #26914a;
+            color: white;
+            border: none;
+            border-radius: 40px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+        .modal-btn:disabled { opacity: 0.7; }
+        .resend-btn {
+            background: none;
+            border: none;
+            color: #26914a;
+            cursor: pointer;
+            font-weight: 500;
+            margin-top: 12px;
+            display: block;
+            width: 100%;
+            text-align: center;
+        }
+        .resend-btn:disabled { color: #ccc; cursor: not-allowed; }
+        .timer-text { text-align: center; font-size: 14px; margin: 12px 0; color: #666; }
+        .modal-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+        }
+        @media (max-width: 480px) {
+            .signup-container { padding: 32px 24px; }
+            h1 { font-size: 24px; }
+            .logo img { max-width: 100px; }
+        }
     </style>
 </head>
 <body>
-    <h2>Test OTP Verification</h2>
-    <input type="email" id="email" placeholder="Email">
-    <input type="text" id="otp" placeholder="OTP">
-    <button onclick="verify()">Verify OTP</button>
-    <pre id="result">Result will appear here...</pre>
+    <div class="signup-container">
+        <div class="logo">
+            <img src="/static/logo.png" alt="Logo" onerror="this.src='/static/placeholder.jpg'">
+        </div>
+        <h1>Create Account</h1>
+        <div class="subtitle">Start trading today</div>
+        <form id="signupForm">
+            <div class="input-group"><input type="text" id="signupFirstName" placeholder="First Name" required></div>
+            <div class="input-group"><input type="text" id="signupLastName" placeholder="Last Name" required></div>
+            <div class="input-group"><input type="email" id="signupEmail" placeholder="Email address" required></div>
+            <div class="input-group"><input type="password" id="signupPassword" placeholder="Password" required></div>
+            <div class="input-group"><input type="password" id="signupConfirm" placeholder="Confirm Password" required></div>
+            <div id="signupError" class="error-message"></div>
+            <button type="submit" class="signup-btn" id="signupBtn">Sign Up</button>
+        </form>
+        <div class="footer">Already have an account? <a href="/cabinet/registration/login.html">Login</a></div>
+    </div>
+
+    <div id="otpModal" class="modal-overlay">
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeOtpModal()">&times;</button>
+            <h2 class="modal-title">Verify OTP</h2>
+            <p>We've sent a 6-digit code to your email.</p>
+            <form id="otpForm">
+                <input type="text" id="otpCode" class="modal-input" placeholder="Enter OTP" maxlength="6" required>
+                <div id="otpError" class="error-message"></div>
+                <div id="otpSuccess" class="success-message"></div>
+                <div id="timerDisplay" class="timer-text"></div>
+                <button type="submit" class="modal-btn" id="verifyBtn">Verify</button>
+                <button type="button" id="resendOtpBtn" class="resend-btn" disabled>Resend OTP</button>
+            </form>
+        </div>
+    </div>
 
     <script>
-        async function verify() {
-            const email = document.getElementById('email').value;
-            const otp = document.getElementById('otp').value;
-            const resultDiv = document.getElementById('result');
-            resultDiv.innerText = 'Verifying...';
-            try {
-                const res = await fetch('https://isaac312.onrender.com/api/verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, otp })
-                });
-                const data = await res.json();
-                resultDiv.innerText = JSON.stringify(data, null, 2);
-            } catch (err) {
-                resultDiv.innerText = 'Error: ' + err.message;
+        const API_BASE = 'https://isaac312.onrender.com/api';
+        let signupEmail = '';
+        let otpTimer = null;
+        let otpTimeLeft = 0;
+
+        function setLoading(btn, isLoading, originalText) {
+            if (isLoading) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="loader"></span> ' + originalText;
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
             }
         }
+
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const firstName = document.getElementById('signupFirstName').value.trim();
+            const lastName = document.getElementById('signupLastName').value.trim();
+            const email = document.getElementById('signupEmail').value.trim();
+            const password = document.getElementById('signupPassword').value;
+            const confirm = document.getElementById('signupConfirm').value;
+            const errorDiv = document.getElementById('signupError');
+            const btn = document.getElementById('signupBtn');
+            if (password !== confirm) { errorDiv.innerText = 'Passwords do not match'; return; }
+            if (password.length < 6) { errorDiv.innerText = 'Password must be at least 6 characters'; return; }
+            setLoading(btn, true, 'Sign Up');
+            errorDiv.innerText = '';
+            try {
+                const res = await fetch(`${API_BASE}/signup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ first_name: firstName, last_name: lastName, email, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Signup failed');
+                signupEmail = email;
+                openOtpModal();
+                document.getElementById('signupForm').reset();
+            } catch (err) {
+                errorDiv.innerText = err.message;
+            } finally {
+                setLoading(btn, false, 'Sign Up');
+            }
+        });
+
+        function openOtpModal() {
+            document.getElementById('otpModal').classList.add('active');
+            startTimer(600);
+            document.getElementById('otpCode').value = '';
+            document.getElementById('otpError').innerText = '';
+            document.getElementById('otpSuccess').innerText = '';
+        }
+        function closeOtpModal() {
+            document.getElementById('otpModal').classList.remove('active');
+            if (otpTimer) clearInterval(otpTimer);
+        }
+        function startTimer(seconds) {
+            if (otpTimer) clearInterval(otpTimer);
+            otpTimeLeft = seconds;
+            updateTimerDisplay();
+            otpTimer = setInterval(() => {
+                if (otpTimeLeft <= 0) {
+                    clearInterval(otpTimer);
+                    document.getElementById('resendOtpBtn').disabled = false;
+                    document.getElementById('timerDisplay').innerHTML = 'OTP expired. Please resend.';
+                } else {
+                    otpTimeLeft--;
+                    updateTimerDisplay();
+                }
+            }, 1000);
+        }
+        function updateTimerDisplay() {
+            const mins = Math.floor(otpTimeLeft / 60);
+            const secs = otpTimeLeft % 60;
+            document.getElementById('timerDisplay').innerHTML = `Code expires in: ${mins}:${secs < 10 ? '0'+secs : secs}`;
+            if (otpTimeLeft <= 0) document.getElementById('timerDisplay').innerHTML = 'OTP expired. Click Resend.';
+        }
+
+        document.getElementById('otpForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const otp = document.getElementById('otpCode').value;
+            const errorDiv = document.getElementById('otpError');
+            const successDiv = document.getElementById('otpSuccess');
+            const btn = document.getElementById('verifyBtn');
+            setLoading(btn, true, 'Verify');
+            errorDiv.innerText = '';
+            successDiv.innerText = '';
+            try {
+                const res = await fetch(`${API_BASE}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: signupEmail, otp: otp })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Verification failed');
+                localStorage.setItem('token', data.token);
+                successDiv.innerText = 'Verification successful! Redirecting...';
+                setTimeout(() => { window.location.href = '/client.html'; }, 1500);
+            } catch (err) {
+                errorDiv.innerText = err.message;
+            } finally {
+                setLoading(btn, false, 'Verify');
+            }
+        });
+
+        document.getElementById('resendOtpBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('resendOtpBtn');
+            btn.disabled = true;
+            const errorDiv = document.getElementById('otpError');
+            errorDiv.innerText = '';
+            try {
+                const res = await fetch(`${API_BASE}/resend-otp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: signupEmail })
+                });
+                if (!res.ok) throw new Error('Resend failed');
+                startTimer(600);
+                document.getElementById('otpSuccess').innerText = 'New OTP sent!';
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                btn.disabled = false;
+            }
+        });
     </script>
 </body>
 </html>
